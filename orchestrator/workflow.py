@@ -11,6 +11,36 @@ class WorkflowOrchestrator:
         self.coding_agent = CodingAgent()
         self.qa_agent = QAAgent()
 
+    def validate_dependencies(self, tasks, dependencies):
+
+        total_tasks = len(tasks)
+
+        for task_number, required_tasks in dependencies.items():
+
+            if task_number < 1 or task_number > total_tasks:
+                return False, f"Invalid task number: {task_number}"
+
+            for dependency in required_tasks:
+
+                if dependency < 1 or dependency > total_tasks:
+                    return False, (
+                        f"Task {task_number} has invalid dependency "
+                        f"{dependency}."
+                    )
+
+                if dependency == task_number:
+                    return False, (
+                        f"Task {task_number} cannot depend on itself."
+                    )
+
+                if dependency > task_number:
+                    return False, (
+                        f"Task {task_number} cannot depend on future "
+                        f"task {dependency}."
+                    )
+
+        return True, "All dependencies are valid."
+
     def run_workflow(self, user_request):
 
         if not user_request or not user_request.strip():
@@ -19,7 +49,6 @@ class WorkflowOrchestrator:
                 "message": "Please provide a project request."
             }
 
-        # Step 1: Start workflow
         coordinator_result = self.coordinator.receive_request(
             user_request
         )
@@ -27,7 +56,6 @@ class WorkflowOrchestrator:
         if coordinator_result.get("status") != "workflow_started":
             return coordinator_result
 
-        # Step 2: Get tasks
         plan = coordinator_result["plan"]
         tasks = plan.get("tasks", [])
 
@@ -37,7 +65,6 @@ class WorkflowOrchestrator:
                 "message": "No tasks found."
             }
 
-        # Step 3: Define task dependencies
         dependencies = {
             1: [],
             2: [1],
@@ -46,10 +73,19 @@ class WorkflowOrchestrator:
             5: [1, 2, 3, 4]
         }
 
+        valid, validation_message = self.validate_dependencies(
+            tasks, dependencies
+        )
+
+        if not valid:
+            return {
+                "status": "error",
+                "message": validation_message
+            }
+
         results = []
         task_status = {}
 
-        # Step 4: Execute tasks in dependency order
         for task_number, task in enumerate(tasks, start=1):
 
             required_tasks = dependencies.get(task_number, [])
@@ -80,7 +116,6 @@ class WorkflowOrchestrator:
 
             try:
                 coding_result = self.coding_agent.execute_task(task)
-
                 task_result["coding_result"] = coding_result
 
                 if coding_result.get("status") != "task_received":
@@ -92,7 +127,6 @@ class WorkflowOrchestrator:
                 qa_result = self.qa_agent.review_task(
                     task, coding_result
                 )
-
                 task_result["qa_result"] = qa_result
 
                 if qa_result.get("status") == "review_passed":
@@ -109,7 +143,6 @@ class WorkflowOrchestrator:
 
             results.append(task_result)
 
-        # Step 5: Final report
         completed = sum(
             1 for status in task_status.values()
             if status == "completed"
@@ -132,5 +165,6 @@ class WorkflowOrchestrator:
             "completed_tasks": completed,
             "failed_tasks": failed,
             "blocked_tasks": blocked,
+            "dependency_validation": validation_message,
             "execution_results": results
         }

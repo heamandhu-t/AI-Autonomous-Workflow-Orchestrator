@@ -34,20 +34,48 @@ class WorkflowOrchestrator:
         if not tasks:
             return {
                 "status": "error",
-                "message": "No tasks found in the execution plan."
+                "message": "No tasks found."
             }
 
-        results = []
-        completed_tasks = 0
-        failed_tasks = 0
+        # Step 3: Define task dependencies
+        dependencies = {
+            1: [],
+            2: [1],
+            3: [1, 2],
+            4: [3],
+            5: [1, 2, 3, 4]
+        }
 
-        # Step 3: Execute and track each task
+        results = []
+        task_status = {}
+
+        # Step 4: Execute tasks in dependency order
         for task_number, task in enumerate(tasks, start=1):
+
+            required_tasks = dependencies.get(task_number, [])
+
+            blocked = [
+                dependency
+                for dependency in required_tasks
+                if task_status.get(dependency) != "completed"
+            ]
+
+            if blocked:
+                task_status[task_number] = "blocked"
+
+                results.append({
+                    "task_id": task_number,
+                    "task": task,
+                    "status": "blocked",
+                    "blocked_by": blocked
+                })
+                continue
 
             task_result = {
                 "task_id": task_number,
                 "task": task,
-                "status": "processing"
+                "status": "processing",
+                "dependencies": required_tasks
             }
 
             try:
@@ -57,7 +85,7 @@ class WorkflowOrchestrator:
 
                 if coding_result.get("status") != "task_received":
                     task_result["status"] = "failed"
-                    failed_tasks += 1
+                    task_status[task_number] = "failed"
                     results.append(task_result)
                     continue
 
@@ -69,27 +97,40 @@ class WorkflowOrchestrator:
 
                 if qa_result.get("status") == "review_passed":
                     task_result["status"] = "completed"
-                    completed_tasks += 1
+                    task_status[task_number] = "completed"
                 else:
                     task_result["status"] = "failed"
-                    failed_tasks += 1
+                    task_status[task_number] = "failed"
 
             except Exception as error:
                 task_result["status"] = "failed"
                 task_result["error"] = str(error)
-                failed_tasks += 1
+                task_status[task_number] = "failed"
 
             results.append(task_result)
 
-        # Step 4: Final workflow report
+        # Step 5: Final report
+        completed = sum(
+            1 for status in task_status.values()
+            if status == "completed"
+        )
+
+        failed = sum(
+            1 for status in task_status.values()
+            if status == "failed"
+        )
+
+        blocked = sum(
+            1 for status in task_status.values()
+            if status == "blocked"
+        )
+
         return {
             "project": user_request,
-            "status": (
-                "completed" if failed_tasks == 0
-                else "completed_with_errors"
-            ),
+            "status": "workflow_processed",
             "total_tasks": len(tasks),
-            "completed_tasks": completed_tasks,
-            "failed_tasks": failed_tasks,
+            "completed_tasks": completed,
+            "failed_tasks": failed,
+            "blocked_tasks": blocked,
             "execution_results": results
         }
